@@ -1,0 +1,45 @@
+---
+# yamllint disable rule:line-length
+
+on:
+  workflow_call:
+
+env:
+  RED: '\033[0;31m'
+  GREEN: '\033[0;32m'
+  YELLOW: '\033[1;33m'
+  H_GREEN: '\033[97;42m'
+  H_WHITE: '\033[90;47m'
+  H_YELLOW: '\033[90;43m'
+  H_RED: '\033[97;41m'
+  H_BLUE: '\033[97;44m'
+  H_MAGENTA: '\033[97;45m'
+  H_CYAN: '\033[97;46m'
+  NC: '\033[0m'  # No Color
+
+jobs:
+  git_version_gating:
+    name: Git version gating
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+
+      - name: Git version gating
+        run: |
+          git fetch --all --tags
+
+          VERSION_TAG=$(cat VERSION)
+          CURRENT_TAG=$(git tag --list | sort -V | tail -n1)
+          VERSION_TAG_FILTERED=$(echo $VERSION_TAG | tr -d 'v.' | sed 's/^0*//')
+          CURRENT_TAG_FILTERED=$(echo $CURRENT_TAG | tr -d 'v.' | sed 's/^0*//')
+
+          if [[ -z "$CURRENT_TAG_FILTERED" ]] || [[ "$VERSION_TAG_FILTERED" -gt "$CURRENT_TAG_FILTERED" ]]; then
+          	echo -e "Gating: ${H_GREEN}PASSED${NC}"
+          	echo -e "${GREEN}VERSION tag $VERSION_TAG is higher than to Current Tag $CURRENT_TAG${NC}"
+          else
+          	echo -e "Gating: ${H_RED}FAILED${NC}"
+          	echo -e "${RED}VERSION tag $VERSION_TAG is lower or equal to Current Tag $CURRENT_TAG${NC}"
+          	exit 1
+          fi

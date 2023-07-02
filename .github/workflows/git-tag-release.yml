@@ -1,0 +1,75 @@
+---
+# yamllint disable rule:line-length
+
+on:
+  workflow_call:
+
+env:
+  RED: '\033[0;31m'
+  GREEN: '\033[0;32m'
+  YELLOW: '\033[1;33m'
+  H_GREEN: '\033[97;42m'
+  H_WHITE: '\033[90;47m'
+  H_YELLOW: '\033[90;43m'
+  H_RED: '\033[97;41m'
+  H_BLUE: '\033[97;44m'
+  H_MAGENTA: '\033[97;45m'
+  H_CYAN: '\033[97;46m'
+  NC: '\033[0m'  # No Color
+
+jobs:
+  git-tag-release:
+    runs-on: ubuntu-latest
+    name: Git tag and release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Git config
+        run: |
+          git config --local --add safe.directory $GITHUB_WORKSPACE
+
+      - name: Fetch git commit info
+        id: git_info
+        run: |
+          GIT_SUBJECT=$(git log -1 --pretty=format:"%s")
+          echo "git_subject=$GIT_SUBJECT" >>$GITHUB_OUTPUT
+
+          echo $GIT_SUBJECT
+
+          GIT_BODY=$(git log -1 --format=%b HEAD | grep "\S") || GIT_BODY=""
+
+          if [ -z $GIT_BODY ]; then
+          	echo "git_body=$GIT_BODY" >>$GITHUB_OUTPUT
+          else
+            # This hack is required to add a multiline output to GITHUB_OUTPUT
+          	echo "git_body<<EOF" >>$GITHUB_OUTPUT
+          	echo $GIT_BODY >>$GITHUB_OUTPUT
+          	echo "EOF" >>$GITHUB_OUTPUT
+          fi
+
+      - name: Create latest tag
+        id: create_tag
+        run: |
+          git fetch --unshallow --tags
+          VERSION=$(cat VERSION)
+          LATEST_TAG=$(cat VERSION | tr -d 'v.')
+          CURRENT_TAG=$(git tag --list| tail -n1| tr -d 'v.')
+          if [[ $LATEST_TAG -gt $CURRENT_TAG ]]
+          then
+            git tag $VERSION
+            git push --tags
+            echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
+            echo "release=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        if: ${{ steps.create_tag.outputs.release == 'true' }}
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.create_tag.outputs.tag_version }}
+          release_name: "${{ steps.create_tag.outputs.tag_version }}: ${{ steps.git_info.outputs.git_subject }}"
+          body: ${{ steps.git_info.outputs.git_body }}
