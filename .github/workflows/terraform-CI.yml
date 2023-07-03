@@ -1,0 +1,98 @@
+---
+# yamllint disable rule:line-length rule:truthy
+
+on:
+  workflow_call:
+    inputs:
+      ENVIRONMENT:
+        required: true
+        type: string
+      TFVARS_PATH:
+        required: true
+        type: string
+
+env:
+  GREEN: '\033[0;32m'
+  RED: '\033[0;31m'
+  H_GREEN: '\033[97;42m'
+  H_RED: '\033[97;41m'
+  NC: '\033[0m'  # No Color
+  AWS_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+
+      - name: Terraform init
+        run: |
+          terraform init -backend-config=${{ inputs.TFVARS_PATH }}/${{ inputs.ENVIRONMENT }}/backend.tfvars -upgrade=true
+
+      - name: Terraform fmt
+        run: |
+          terraform fmt -recursive
+
+      - name: Terraform plan
+        run: |
+          terraform plan -var-file=${{ inputs.TFVARS_PATH }}/${{ inputs.ENVIRONMENT }}/input.tfvars -lock=false
+
+  tfsec:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@master
+
+      - name: Setup tfsec
+        run: |
+          curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
+
+      - name: Run tfsec scan
+        run: |
+          tfsec . --tfvars-file=${{ inputs.TFVARS_PATH }}/${{ inputs.ENVIRONMENT }}/input.tfvars --force-all-dirs
+
+  apply:
+    if: success() && github.event_name == 'pull_request'
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+
+      - name: Terraform init
+        run: |
+          terraform init -backend-config=${{ inputs.TFVARS_PATH }}/${{ inputs.ENVIRONMENT }}/backend.tfvars -upgrade=true
+
+      - name: Terraform apply
+        run: |
+          terraform apply -var-file=${{ inputs.TFVARS_PATH }}/${{ inputs.ENVIRONMENT }}/input.tfvars -lock-timeout=15m -auto-approve
+        continue-on-error: true
+
+  destroy:
+    if: (success() || failure()) && github.event_name == 'pull_request'
+    needs: apply
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+
+      - name: Terraform init
+        run: |
+          terraform init -backend-config=${{ inputs.TFVARS_PATH }}/${{ inputs.ENVIRONMENT }}/backend.tfvars -upgrade=true
+
+      - name: Terraform Destroy
+        run: |
+          terraform destroy -var-file=${{ inputs.TFVARS_PATH }}/${{ inputs.ENVIRONMENT }}/input.tfvars -lock-timeout=15m -auto-approve

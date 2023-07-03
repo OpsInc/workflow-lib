@@ -1,0 +1,54 @@
+---
+# yamllint disable rule:line-length rule:truthy
+
+on:
+  workflow_call:
+    inputs:
+      ENVIRONMENT:
+        required: true
+        type: string
+      TFVARS_PATH:
+        required: true
+        type: string
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+jobs:
+  terraform-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+
+      - name: Render terraform docs inside the README.md and push changes back to PR branch
+        uses: terraform-docs/gh-actions@v1.0.0
+        with:
+          config-file: .terraform-docs.yml
+          recursive: true
+          working-dir: .
+          output-file: README.md
+          output-method: inject
+          git-push: "true"
+
+  terraform-deploy-dev:
+    if: success()
+    needs: terraform-docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+
+      - name: Terraform init
+        run: |
+          terraform init -backend-config=${{ inputs.TFVARS_PATH }}/${{ inputs.ENVIRONMENT }}/backend.tfvars -upgrade=true
+
+      - name: Terraform apply
+        id: plan
+        run: |
+          terraform apply -var-file=${{ inputs.TFVARS_PATH }}/${{ inputs.ENVIRONMENT }}/input.tfvars -lock-timeout=15m -auto-approve
