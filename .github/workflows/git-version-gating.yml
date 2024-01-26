@@ -15,7 +15,7 @@ env:
   H_BLUE: '\033[97;44m'
   H_MAGENTA: '\033[97;45m'
   H_CYAN: '\033[97;46m'
-  NC: '\033[0m'  # No Color
+  NC: '\033[0m' # No Color
 
 jobs:
   git_version_gating:
@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Git version gating
         run: |

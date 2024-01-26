@@ -11,7 +11,6 @@ on:
         required: true
         type: string
 
-
 env:
   RED: '\033[0;31m'
   GREEN: '\033[0;32m'
@@ -23,7 +22,7 @@ env:
   H_BLUE: '\033[97;44m'
   H_MAGENTA: '\033[97;45m'
   H_CYAN: '\033[97;46m'
-  NC: '\033[0m'  # No Color
+  NC: '\033[0m' # No Color
   AWS_REGION: ${{ secrets.AWS_REGION }}
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -38,7 +37,7 @@ jobs:
       artifact-empty: ${{ steps.validate-artifact.outputs.artifact-empty }}
     steps:
       - name: Check out repository code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Download Artifact from S3
         run: |
@@ -76,7 +75,7 @@ jobs:
       BUCKET_NAME: "pipeline-artifact-mgmt-dev.nodestack.cloud"
     steps:
       - name: Check out repository code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Download Artifact
         uses: actions/download-artifact@v3
@@ -115,7 +114,7 @@ jobs:
       BUCKET_NAME: "lambda-source-code-mgmt-dev.nodestack.cloud"
     steps:
       - name: Check out repository code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Download Artifact
         uses: actions/download-artifact@v3
@@ -138,7 +137,7 @@ jobs:
       BUCKET_NAME: "lambda-source-code-mgmt-dev.nodestack.cloud"
     steps:
       - name: Check out repository code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Download Artifact
         uses: actions/download-artifact@v3

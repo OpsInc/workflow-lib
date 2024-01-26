@@ -15,7 +15,7 @@ env:
   H_BLUE: '\033[97;44m'
   H_MAGENTA: '\033[97;45m'
   H_CYAN: '\033[97;46m'
-  NC: '\033[0m'  # No Color
+  NC: '\033[0m' # No Color
 
 jobs:
   git-tag-release:
@@ -23,7 +23,7 @@ jobs:
     name: Git tag and release
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Git config
         run: |
