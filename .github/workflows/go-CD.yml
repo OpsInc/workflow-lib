@@ -10,6 +10,16 @@ on:
       PROJECT:
         required: true
         type: string
+      S3_BUCKET:
+        required: true
+        type: string
+      S3_BUCKET_DEST:
+        required: true
+        type: string
+      BINARY_NAME:
+        required: false
+        type: string
+        default: "main"
 
 env:
   RED: '\033[0;31m'
@@ -23,7 +33,7 @@ env:
   H_MAGENTA: '\033[97;45m'
   H_CYAN: '\033[97;46m'
   NC: '\033[0m' # No Color
-  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
@@ -31,8 +41,6 @@ jobs:
   download-artifact-s3:
     name: Download artifact from S3
     runs-on: ubuntu-latest
-    env:
-      BUCKET_NAME: "pipeline-artifact-mgmt-dev.nodestack.cloud"
     outputs:
       artifact-empty: ${{ steps.validate-artifact.outputs.artifact-empty }}
     steps:
@@ -43,9 +51,11 @@ jobs:
         run: |
 
           VERSION=$(cat VERSION)
+          REPO=$(basename $GITHUB_REPOSITORY)
 
-          echo -e "${GREEN}Download from S3: ${YELLOW} ${BUCKET_NAME}${NC}"
-          aws s3 cp s3://${BUCKET_NAME}/${VERSION}/ ./bin/ --recursive
+          echo -e "${GREEN}Download from S3: ${YELLOW} ${{ inputs.S3_BUCKET }}${NC}"
+
+          aws s3 cp s3://${{ inputs.S3_BUCKET }}/${REPO}/${VERSION}/ ./bin/ --recursive
 
       - name: Validate if artifact is empty
         id: validate-artifact
@@ -71,8 +81,6 @@ jobs:
     if: needs.download-artifact-s3.outputs.artifact-empty == 'false'
     runs-on: ubuntu-latest
     needs: download-artifact-s3
-    env:
-      BUCKET_NAME: "pipeline-artifact-mgmt-dev.nodestack.cloud"
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
@@ -87,17 +95,34 @@ jobs:
         run: |
           VERSION=$(cat VERSION)
 
-          for module in $(ls ./bin)
-          do
-            echo -e "\nZIP_CODE: ${YELLOW}Zip file ./bin/${module}/main${NC}"
-            cd ./bin/${module}
-            zip "${VERSION}.zip" main
-            cd -
+          FILE_TYPE=$(file --brief * | head -n 1)
+          REPO=$(basename $GITHUB_REPOSITORY)
 
-            mkdir -p ./zip/${module}
-            mv "./bin/${module}/${VERSION}.zip" ./zip/${module}
-            echo -e "ZIP_CODE: ${YELLOW}Versioned output: ./bin/${module}/${VERSION}.zip${NC}"
-          done
+          if [[ $FILE_TYPE == "directory" ]]
+          then
+            for module in $(ls ./bin)
+            do
+              echo -e "\nZIP_CODE: ${YELLOW}Zip file ./bin/${module}/${{ inputs.BINARY_NAME }}${NC}"
+              
+              cd ./bin/${module}
+              zip "${VERSION}.zip" ${{ inputs.BINARY_NAME }}
+              cd -
+
+              mkdir -p ./zip/${module}
+              mv "./bin/${module}/${VERSION}.zip" ./zip/${module}
+              echo -e "ZIP_CODE: ${YELLOW}Versioned output: ./bin/${module}/${VERSION}.zip${NC}"
+            done
+          else
+            echo -e "\nZIP_CODE: ${YELLOW}Zip file ./bin/${{ inputs.BINARY_NAME }}${NC}"
+            
+            cd ./bin 
+            zip "${VERSION}.zip" ${{ inputs.BINARY_NAME }}
+            cd -
+            
+            mkdir -p ./zip/${REPO}
+            mv "./bin/${VERSION}.zip" ./zip/${REPO}/
+            echo -e "ZIP_CODE: ${YELLOW}Versioned output: ./bin/${REPO}/${VERSION}.zip${NC}"
+          fi
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v3
@@ -106,35 +131,10 @@ jobs:
           path: zip/
           retention-days: 1
 
-  aws-push-code-to-s3:
-    name: Push code to S3
-    runs-on: ubuntu-latest
-    needs: zip-code
-    env:
-      BUCKET_NAME: "lambda-source-code-mgmt-dev.nodestack.cloud"
-    steps:
-      - name: Check out repository code
-        uses: actions/checkout@v4
-
-      - name: Download Artifact
-        uses: actions/download-artifact@v3
-        with:
-          name: go-zip-artifact
-          path: zip/
-
-      - name: Push to S3
-        run: |
-          for module in $(ls -A ./zip); do
-            echo -e "${GREEN}PUSH TO S3: ${YELLOW}Files in module ./zip/${module} will be pushed to lambda ${BUCKET_NAME}${NC}"
-            aws s3 cp ./zip/${module} s3://${BUCKET_NAME}/${module} --recursive
-          done
-
   aws-push-code-to-lambda:
     name: Push code to Lambda
     runs-on: ubuntu-latest
-    needs: aws-push-code-to-s3
-    env:
-      BUCKET_NAME: "lambda-source-code-mgmt-dev.nodestack.cloud"
+    needs: zip-code
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
@@ -148,8 +148,8 @@ jobs:
       - name: Push to S3
         run: |
           for module in $(ls -A ./zip); do
-            echo -e "${GREEN}PUSH TO S3: ${YELLOW}Files in module ./zip/${module} will be pushed to lambda ${BUCKET_NAME}${NC}"
-            aws s3 cp ./zip/${module} s3://${BUCKET_NAME}/${module} --recursive
+            echo -e "${GREEN}PUSH TO S3: ${YELLOW}Files in module ./zip/${module} will be pushed to lambda ${{ inputs.S3_BUCKET }}${NC}"
+            aws s3 cp ./zip/${module} s3://${{ inputs.S3_BUCKET_DEST }}/${module} --recursive
           done
 
       - name: Deploy code to Lambda
@@ -159,6 +159,6 @@ jobs:
               package=$(ls ./zip/${module}/)
 
               echo -e "${GREEN}Deploy Lambda ${module}-${{ inputs.PROJECT }}-${{ inputs.ENVIRONMENT }}${NC}: ${YELLOW}Package: ${package}${NC}"
-              aws lambda update-function-code --function-name ${module}-${{ inputs.PROJECT }}-${{ inputs.ENVIRONMENT }}  --s3-bucket ${BUCKET_NAME} --s3-key ${module}/${package}
+              aws lambda update-function-code --function-name ${module}-${{ inputs.PROJECT }}-${{ inputs.ENVIRONMENT }}  --s3-bucket ${{ inputs.S3_BUCKET_DEST }} --s3-key ${module}/${package}
             done
           fi
