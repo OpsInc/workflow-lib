@@ -3,6 +3,14 @@
 
 on:
   workflow_call:
+    inputs:
+      REPO_STYLE:
+        required: false
+        type: string
+        default: monorepo
+      S3_BUCKET:
+        required: true
+        type: string
 
 env:
   RED: '\033[0;31m'
@@ -15,7 +23,7 @@ env:
   H_BLUE: '\033[97;44m'
   H_MAGENTA: '\033[97;45m'
   H_CYAN: '\033[97;46m'
-  NC: '\033[0m'  # No Color
+  NC: '\033[0m' # No Color
   AWS_REGION: ${{ secrets.AWS_REGION }}
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -28,23 +36,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - uses: actions/setup-go@v4
         with:
-          go-version: '1.20'
+          go-version: "stable"
           cache: false
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v3
         with:
-          version: v1.53
+          version: latest
           args: >
             --enable-all
             -D varnamelen -D interfacer -D maligned -D golint -D scopelint -D exhaustivestruct
             -D bodyclose -D contextcheck -D nilerr -D noctx -D rowserrcheck -D sqlclosecheck
             -D structcheck -D tparallel -D wastedassign -D gci -D gosimple -D ifshort -D lll
-            -D usestdlibvars -D paralleltest -D depguard
+            -D usestdlibvars -D paralleltest -D depguard -D varcheck -D deadcode -D nosnakecase
 
   build:
     name: Build Code
@@ -55,16 +63,25 @@ jobs:
       deploy-code: ${{ steps.go-build.outputs.deploy-code }}
     steps:
       - name: Check out repository code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - uses: actions/setup-go@v4
         with:
-          go-version: '1.20'
+          go-version: stable
           cache: false
 
-      - name: Go Build
+      # - name: Go Build standard repo
+      #   if: ${{ inputs.REPO_STYLE == 'standard' }}
+      #   id: go-build
+      #   run: |
+      #     git fetch --all --tags
+      #
+      #     GIT_COMMIT_MSG=$(git log --oneline | grep -v Merge | head  -n1)
+      #     GIT_DIFF=$(git diff-tree --no-commit-id --name-only -r $(git log --oneline | grep -v Merge | head  -n1 |awk '{print $1}'))
+
+      - name: Go Build monorepo
         id: go-build
         run: |
           git fetch --all --tags
@@ -72,25 +89,32 @@ jobs:
           GIT_COMMIT_MSG=$(git log --oneline | grep -v Merge | head  -n1)
           GIT_DIFF=$(git diff-tree --no-commit-id --name-only -r $(git log --oneline | grep -v Merge | head  -n1 |awk '{print $1}'))
 
-          if [[ $(echo $GIT_DIFF | sed 's/ /\n/g' | grep '^internal') || $GIT_COMMIT_MSG == *'[force-build]'* ]]
+          if [[ ${{ inputs.REPO_STYLE }} == 'standard' ]]
           then
-            for module in $(ls ./cmd)
-            do
-              echo -e "BUILD: ${YELLOW}Compiling module ${module} into ./bin${NC}"
-              go build -o ./bin/$module/main ./cmd/$module/
-            done
+            go build -o ./bin/bootstrap
             echo "deploy-code=true" >>$GITHUB_OUTPUT
-          elif [[ $(echo $GIT_DIFF | sed 's/ /\n/g' | grep '^cmd') ]]
+          elif [[ ${{ inputs.REPO_STYLE }} == 'monorepo' ]]
           then
-            package_changed=$(echo $GIT_DIFF | sed 's/ /\n/g' | grep '^cmd' | cut -d '/' -f 2)
-            for module in $package_changed
-            do
-              echo -e "BUILD: ${YELLOW}Compiling module ${module} into ./bin${NC}"
-              go build -o ./bin/$module/main ./cmd/$module/
-            done
-            echo "deploy-code=true" >>$GITHUB_OUTPUT
-          else
-            echo "deploy-code=false" >>$GITHUB_OUTPUT
+            if [[ $(echo $GIT_DIFF | sed 's/ /\n/g' | grep '^internal') || $GIT_COMMIT_MSG == *'[force-build]'* ]]
+            then
+              for module in $(ls ./cmd)
+              do
+                echo -e "BUILD: ${YELLOW}Compiling module ${module} into ./bin${NC}"
+                go build -o ./bin/$module/main ./cmd/$module/
+              done
+              echo "deploy-code=true" >>$GITHUB_OUTPUT
+            elif [[ $(echo $GIT_DIFF | sed 's/ /\n/g' | grep '^cmd') ]]
+            then
+              package_changed=$(echo $GIT_DIFF | sed 's/ /\n/g' | grep '^cmd' | cut -d '/' -f 2)
+              for module in $package_changed
+              do
+                echo -e "BUILD: ${YELLOW}Compiling module ${module} into ./bin${NC}"
+                go build -o ./bin/$module/main ./cmd/$module/
+              done
+              echo "deploy-code=true" >>$GITHUB_OUTPUT
+            else
+              echo "deploy-code=false" >>$GITHUB_OUTPUT
+            fi
           fi
 
       - name: Upload Artifact
@@ -105,11 +129,9 @@ jobs:
     if: github.event_name == 'pull_request' && needs.build.outputs.deploy-code == 'true'
     runs-on: ubuntu-latest
     needs: build
-    env:
-      BUCKET_NAME: "pipeline-artifact-mgmt-dev.nodestack.cloud"
     steps:
       - name: Check out repository code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -126,6 +148,13 @@ jobs:
           VERSION=$(cat VERSION)
 
           for module in $(ls -A ./bin); do
-            echo -e "${GREEN}PUSH TO S3: ${YELLOW}Files in module ./bin/${module} will be pushed to lambda ${BUCKET_NAME}${NC}"
-            aws s3 cp ./bin/${module} s3://${BUCKET_NAME}/${VERSION}/${module} --recursive
+            echo -e "${GREEN}PUSH TO S3: ${YELLOW}Files in module ./bin/${module} will be pushed to lambda ${{ inputs.S3_BUCKET }}${NC}"
+            FILE_TYPE=$(file --brief ${module})
+
+            if [[ $FILE_TYPE == "directory" ]]
+            then
+              aws s3 cp ./bin/${module} s3://${{ inputs.S3_BUCKET }}/${VERSION}/${module} --recursive
+            else
+              aws s3 cp ./bin/${module} s3://${{ inputs.S3_BUCKET }}/${VERSION}/${module}
+            fi
           done
