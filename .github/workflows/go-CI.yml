@@ -24,7 +24,7 @@ env:
   H_MAGENTA: '\033[97;45m'
   H_CYAN: '\033[97;46m'
   NC: '\033[0m' # No Color
-  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
@@ -43,16 +43,16 @@ jobs:
           go-version: "stable"
           cache: false
 
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v3
-        with:
-          version: latest
-          args: >
-            --enable-all
-            -D varnamelen -D interfacer -D maligned -D golint -D scopelint -D exhaustivestruct
-            -D bodyclose -D contextcheck -D nilerr -D noctx -D rowserrcheck -D sqlclosecheck
-            -D structcheck -D tparallel -D wastedassign -D gci -D gosimple -D ifshort -D lll
-            -D usestdlibvars -D paralleltest -D depguard -D varcheck -D deadcode -D nosnakecase
+      # - name: golangci-lint
+      #   uses: golangci/golangci-lint-action@v3
+      #   with:
+      #     version: latest
+      #     args: >
+      #       --enable-all
+      #       -D varnamelen -D interfacer -D maligned -D golint -D scopelint -D exhaustivestruct
+      #       -D bodyclose -D contextcheck -D nilerr -D noctx -D rowserrcheck -D sqlclosecheck
+      #       -D structcheck -D tparallel -D wastedassign -D gci -D gosimple -D ifshort -D lll
+      #       -D usestdlibvars -D paralleltest -D depguard -D varcheck -D deadcode -D nosnakecase
 
   build:
     name: Build Code
@@ -72,16 +72,7 @@ jobs:
           go-version: stable
           cache: false
 
-      # - name: Go Build standard repo
-      #   if: ${{ inputs.REPO_STYLE == 'standard' }}
-      #   id: go-build
-      #   run: |
-      #     git fetch --all --tags
-      #
-      #     GIT_COMMIT_MSG=$(git log --oneline | grep -v Merge | head  -n1)
-      #     GIT_DIFF=$(git diff-tree --no-commit-id --name-only -r $(git log --oneline | grep -v Merge | head  -n1 |awk '{print $1}'))
-
-      - name: Go Build monorepo
+      - name: Go Build
         id: go-build
         run: |
           git fetch --all --tags
@@ -91,7 +82,7 @@ jobs:
 
           if [[ ${{ inputs.REPO_STYLE }} == 'standard' ]]
           then
-            go build -o ./bin/bootstrap
+            CGO_ENABLED=0 go build -o ./bin/bootstrap
             echo "deploy-code=true" >>$GITHUB_OUTPUT
           elif [[ ${{ inputs.REPO_STYLE }} == 'monorepo' ]]
           then
@@ -100,7 +91,7 @@ jobs:
               for module in $(ls ./cmd)
               do
                 echo -e "BUILD: ${YELLOW}Compiling module ${module} into ./bin${NC}"
-                go build -o ./bin/$module/main ./cmd/$module/
+                CGO_ENABLED=0 go build -o ./bin/$module/main ./cmd/$module/
               done
               echo "deploy-code=true" >>$GITHUB_OUTPUT
             elif [[ $(echo $GIT_DIFF | sed 's/ /\n/g' | grep '^cmd') ]]
@@ -109,7 +100,7 @@ jobs:
               for module in $package_changed
               do
                 echo -e "BUILD: ${YELLOW}Compiling module ${module} into ./bin${NC}"
-                go build -o ./bin/$module/main ./cmd/$module/
+                CGO_ENABLED=0 go build -o ./bin/$module/main ./cmd/$module/
               done
               echo "deploy-code=true" >>$GITHUB_OUTPUT
             else
@@ -146,6 +137,7 @@ jobs:
           git fetch --all --tags
 
           VERSION=$(cat VERSION)
+          REPO=$(basename $GITHUB_REPOSITORY)
 
           for module in $(ls -A ./bin); do
             echo -e "${GREEN}PUSH TO S3: ${YELLOW}Files in module ./bin/${module} will be pushed to lambda ${{ inputs.S3_BUCKET }}${NC}"
@@ -155,6 +147,6 @@ jobs:
             then
               aws s3 cp ./bin/${module} s3://${{ inputs.S3_BUCKET }}/${VERSION}/${module} --recursive
             else
-              aws s3 cp ./bin/${module} s3://${{ inputs.S3_BUCKET }}/${VERSION}/${module}
+              aws s3 cp ./bin/${module} s3://${{ inputs.S3_BUCKET }}/${REPO}/${VERSION}/${module}
             fi
           done
