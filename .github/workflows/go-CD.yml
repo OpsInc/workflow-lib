@@ -158,7 +158,7 @@ jobs:
             for module in $(ls -A ./zip); do
               package=$(ls ./zip/${module}/)
 
-              echo -e "${GREEN}Deploy Lambda ${module}-${{ inputs.PROJECT }}-${{ inputs.ENVIRONMENT }}${NC}: ${YELLOW}Package: ${package}${NC}"
-              aws lambda update-function-code --function-name ${module}-${{ inputs.PROJECT }}-${{ inputs.ENVIRONMENT }}  --s3-bucket ${{ inputs.S3_BUCKET_DEST }} --s3-key ${module}/${package} --publish
+              echo -e "${GREEN}Deploy Lambda ${module}-${{ inputs.ENVIRONMENT }}${NC}: ${YELLOW}Package: ${package}${NC}"
+              aws lambda update-function-code --function-name ${module}-${{ inputs.ENVIRONMENT }}  --s3-bucket ${{ inputs.S3_BUCKET_DEST }} --s3-key ${module}/${package} --publish
             done
           fi
