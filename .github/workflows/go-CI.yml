@@ -53,7 +53,7 @@ jobs:
             -D bodyclose -D contextcheck -D nilerr -D noctx -D rowserrcheck -D sqlclosecheck
             -D structcheck -D tparallel -D wastedassign -D gci -D gosimple -D ifshort -D lll
             -D usestdlibvars -D paralleltest -D depguard -D varcheck -D deadcode -D nosnakecase
-            -D exhaustruct
+            -D exhaustruct -D wrapcheck -D goerr113 -D tagliatelle -D gofumpt
 
   build:
     name: Build Code
